@@ -1,75 +1,88 @@
+import streamlit as st
 import cv2
 import face_recognition
+import numpy as np
 
-print("Kütüphaneler başarıyla yüklendi!")
+st.title("Gerçek Zamanlı Yüz Tanıma Uygulaması")
 
-# Yüzlerin tanımlanması
+# Bilinen yüzlerin tanımlanması
 known_face_encodings = []
 known_face_names = []
 
-photos = [
-    ("images/person1.jpg", "Betul"),
-    ("images/person3.jpg", "emıne"),
-]
+# Kullanıcının görseller yüklemesine izin ver
+uploaded_files = st.file_uploader(
+    "Tanımak istediğiniz kişilerin resimlerini yükleyin", 
+    type=["jpg", "jpeg", "png"], 
+    accept_multiple_files=True
+)
 
-# Yüzlerin yüklenmesi
-for photo_path, name in photos:
-    try:
-        image = face_recognition.load_image_file(photo_path)
-        encodings = face_recognition.face_encodings(image)
-        if encodings:
-            known_face_encodings.append(encodings[0])
-            known_face_names.append(name)
-        else:
-            print(f"Uyarı: {photo_path} içerisinde yüz algılanamadı.")
-    except Exception as e:
-        print(f"Hata: {photo_path} yüklenirken bir sorun oluştu: {e}")
+if uploaded_files:
+    for uploaded_file in uploaded_files:
+        try:
+            image = face_recognition.load_image_file(uploaded_file)
+            encodings = face_recognition.face_encodings(image)
+            if encodings:
+                known_face_encodings.append(encodings[0])
+                # Dosya adını (uzantısı olmadan) kişinin ismi olarak kullanma
+                name = uploaded_file.name.rsplit('.', 1)[0]
+                known_face_names.append(name)
+            else:
+                st.warning(f"{uploaded_file.name} dosyasında yüz algılanamadı.")
+        except Exception as e:
+            st.error(f"{uploaded_file.name} yüklenirken bir hata oluştu: {e}")
 
-# Kamerayı başlatma
-video_capture = cv2.VideoCapture(0)
+    st.success("Yüzler başarıyla yüklendi. Kamerayı başlatabilirsiniz!")
 
-if not video_capture.isOpened():
-    print("Kamera açılmadı!")
-    exit()
+# Kamera akışını başlat
+if st.button("Kamerayı Başlat"):
+    # OpenCV kullanarak video yakalama
+    video_capture = cv2.VideoCapture(0)
 
-while True:
-    ret, frame = video_capture.read()
-    if not ret:
-        print("Kamera görüntüsü alınamadı.")
-        break
+    if not video_capture.isOpened():
+        st.error("Kamera açılamadı!")
+    else:
+        st.write("Kamerayı kapatmak için pencereyi kapatın veya 'q' tuşuna basın.")
 
-    
-    small_frame = cv2.resize(frame, (0, 0), fx=0.25, fy=0.25)
-    rgb_small_frame = cv2.cvtColor(small_frame, cv2.COLOR_BGR2RGB)
+        # Streamlit'te video akışını göstermek için bir döngü
+        frame_placeholder = st.empty()
 
-    # Yüz algılama
-    face_locations = face_recognition.face_locations(rgb_small_frame)
-    face_encodings = []
+        while True:
+            ret, frame = video_capture.read()
+            if not ret:
+                st.error("Kamera görüntüsü alınamadı!")
+                break
 
-    if face_locations:
-        face_encodings = face_recognition.face_encodings(rgb_small_frame, face_locations)
+            # Çerçeveyi işleme
+            small_frame = cv2.resize(frame, (0, 0), fx=0.25, fy=0.25)
+            rgb_small_frame = cv2.cvtColor(small_frame, cv2.COLOR_BGR2RGB)
 
-    for face_encoding, face_location in zip(face_encodings, face_locations):
-        matches = face_recognition.compare_faces(known_face_encodings, face_encoding, tolerance=0.6)
-        name = "Unknown"
+            # Yüz tanıma
+            face_locations = face_recognition.face_locations(rgb_small_frame)
+            face_encodings = []
 
-        if True in matches:
-            match_index = matches.index(True)
-            name = known_face_names[match_index]
+            if face_locations:
+                face_encodings = face_recognition.face_encodings(rgb_small_frame, face_locations)
 
-        # Çerçeve ve isim yazma
-        top, right, bottom, left = [v * 4 for v in face_location]
-        color = (0, 255, 0) if name != "Unknown" else (0, 0, 255)
-        cv2.rectangle(frame, (left, top), (right, bottom), color, 2)
-        cv2.putText(frame, name, (left, top - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
+            for face_encoding, face_location in zip(face_encodings, face_locations):
+                matches = face_recognition.compare_faces(known_face_encodings, face_encoding, tolerance=0.6)
+                name = "Unknown"
 
-    
-    cv2.imshow('Video', frame)
+                if True in matches:
+                    match_index = matches.index(True)
+                    name = known_face_names[match_index]
 
-    # çıkış
-    if cv2.waitKey(1) & 0xFF == ord('q'):
-        break
+                # Çerçeve ve isim ekleme
+                top, right, bottom, left = [v * 4 for v in face_location]
+                color = (0, 255, 0) if name != "Unknown" else (0, 0, 255)
+                cv2.rectangle(frame, (left, top), (right, bottom), color, 2)
+                cv2.putText(frame, name, (left, top - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
 
+            # Streamlit'te görüntü gösterme
+            frame_placeholder.image(frame, channels="BGR")
 
-video_capture.release()
-cv2.destroyAllWindows()
+            # Çıkış için 'q' tuşuna basma kontrolü
+            if cv2.waitKey(1) & 0xFF == ord('q'):
+                break
+
+        video_capture.release()
+        cv2.destroyAllWindows()
